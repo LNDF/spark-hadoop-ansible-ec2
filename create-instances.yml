@@ -73,6 +73,24 @@
       - "3" 
     register: hadoop_worker_values
 
+- name: Start ATBD-client instance
+  amazon.aws.ec2_instance:
+    name: "ATBD-client"
+    key_name: "vockey"
+    instance_type: t3.large
+    security_group: hadoop-sg
+    image_id: ami-066784287e358dad1
+    region: us-east-1
+    state: running
+    tags:
+      Group: ATBD-client
+    volumes:
+    - device_name: /dev/xvda
+      ebs:
+        volume_size: 50
+        delete_on_termination: true
+  register: atbd_client_values
+
   - meta: refresh_inventory
 
 - hosts: localhost
@@ -286,3 +304,29 @@
   #     device_id: "{{ item }}"
   #     region: us-east-1
   #   loop: "{{ hadoop_master_values.instance_ids }}"
+
+- hosts: tag_Group_ATBD-client
+  tasks:
+    - name: Install Python and PIP
+      ansible.builtin.yum:
+        name:
+          - python3
+          - python3-pip
+        state: present
+
+    - name: Install PySpark
+      ansible.builtin.pip:
+        name: pyspark
+
+    - name: Copy Hadoop configuration files from master
+      ansible.builtin.command: |
+        scp -i ~/.ssh/vockey ec2-user@{{ hadoop_master_values.instances[0].private_ip_address }}:/home/ec2-user/hadoop-3.3.6/etc/hadoop/core-site.xml /home/ec2-user/
+        scp -i ~/.ssh/vockey ec2-user@{{ hadoop_master_values.instances[0].private_ip_address }}:/home/ec2-user/hadoop-3.3.6/etc/hadoop/hdfs-site.xml /home/ec2-user/
+
+    - name: Set environment variables for Hadoop
+      ansible.builtin.shell: |
+        echo 'export HADOOP_CONF_DIR=/home/ec2-user/' >> ~/.bashrc
+        echo 'export PATH=$PATH:/home/ec2-user/hadoop-3.3.6/bin' >> ~/.bashrc
+
+    - name: Validate HDFS connectivity
+      ansible.builtin.command: /home/ec2-user/hadoop-3.3.6/bin/hdfs dfs -ls /
